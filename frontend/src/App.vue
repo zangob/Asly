@@ -14,6 +14,15 @@
 </template>
 
 <script setup>
+import { onMounted } from 'vue';
+import { useUserStore } from './stores/user';
+
+const userStore = useUserStore();
+
+onMounted(async () => {
+  // Verify token on app start
+  await userStore.verifyToken();
+});
 </script>
 
 <style>

@@ -1,6 +1,15 @@
 <template>
   <div>
     <img src="../assets/logo.png" alt="logo" class="back">
+    <div class="grid">
+    
+      <div v-for="(product, index) in products" :key="product._id || index" class="grid-item">
+        <img src="../assets/hody.png" alt="product" class="grid-item-img">
+        <h1 class="grid-item-title">{{ product.name }}</h1>
+        <p class="grid-item-description">{{ product.description }}</p>
+        <p class="grid-item-price">دل{{ product.prise }}</p>
+      </div>
+    </div>
     <div class="bar">
       <img src="../assets/logo.png" alt="logo" class="logo">
     </div>
@@ -18,13 +27,24 @@
         <img src="../assets/Shopping Cart.png" class="cart" :class="{ clicked: clickedBtn === 'cart' }" />
       </button>
       <img src="../assets/logo.png" class="logonav"  />
+      
       <!-- User Popup -->
       <div v-if="showUserPopup" class="user-popup" :class="{ 'bob-up': showUserPopup }">
-        <form v-if="!isSignup" class="form" @submit="handleLogin">
+        <!-- Show user info when logged in -->
+        <div v-if="userStore.isLoggedIn" class="user-info">
+          <h3>Welcome!</h3>
+          <p class="user-email">{{ userStore.userEmail }}</p>
+          <button @click="handleLogout" class="logout-btn">Log Out</button>
+        </div>
+        
+        <!-- Show login/signup forms when not logged in -->
+        <form v-else-if="!isSignup" class="form" @submit="handleLogin">
           <h3>Login</h3>
           <input v-model="loginForm.email" type="email" placeholder="Email" required />
           <input v-model="loginForm.password" type="password" placeholder="Password" required />
-          <button type="submit">Log In</button>
+          <button type="submit" :disabled="userStore.isLoading">
+            {{ userStore.isLoading ? 'Logging in...' : 'Log In' }}
+          </button>
           <p class="switch-text">Don't have an account? <span @click.prevent="switchForm">Sign up</span></p>
         </form>
         <form v-else class="form" @submit="handleSignup">
@@ -32,7 +52,9 @@
           <input v-model="signupForm.email" type="email" placeholder="Email" required />
           <input v-model="signupForm.password" type="password" placeholder="Password" required />
           <input v-model="signupForm.confirm" type="password" placeholder="Confirm Password" required />
-          <button type="submit">Sign Up</button>
+          <button type="submit" :disabled="userStore.isLoading">
+            {{ userStore.isLoading ? 'Signing up...' : 'Sign Up' }}
+          </button>
           <p class="switch-text">Already have an account? <span @click.prevent="switchForm">Log in</span></p>
         </form>
         <div v-if="errorMsg" class="error-msg">{{ errorMsg }}</div>
@@ -44,7 +66,9 @@
 
 <script setup>
 import { ref, onMounted } from 'vue';
-import axios from 'axios';
+import { useUserStore } from '../stores/user';
+
+const userStore = useUserStore();
 
 const navVisible = ref(false);
 const clickedBtn = ref('');
@@ -54,9 +78,22 @@ const loginForm = ref({ email: '', password: '' });
 const signupForm = ref({ email: '', password: '', confirm: '' });
 const errorMsg = ref('');
 const successMsg = ref('');
+const products = ref([]); // Changed from productName to products
+
+// Fetch product data
+const fetchProductData = async () => {
+  try {
+    const response = await fetch('http://localhost:3000/api/products');
+    const productsData = await response.json();
+    products.value = productsData; // Fixed assignment
+    console.log('Fetched products:', productsData); // Debug log
+  } catch (error) {
+    console.error('Error fetching products:', error);
+  }
+};
 
 const onUserClick = (btn) => {
-  clickedBtn.value = btn;
+  clickedBtn.value = btn; // Fixed syntax error - removed extra 's'
   if (btn === 'user') {
     showUserPopup.value = !showUserPopup.value;
   } else {
@@ -86,15 +123,19 @@ const handleLogin = async (e) => {
   e.preventDefault();
   errorMsg.value = '';
   successMsg.value = '';
-  try {
-    const res = await axios.post('http://localhost:3000/api/login', loginForm.value);
+  
+  const result = await userStore.login(loginForm.value.email, loginForm.value.password);
+  
+  if (result.success) {
     successMsg.value = 'Login successful!';
     setTimeout(() => {
       showUserPopup.value = false;
       successMsg.value = '';
+      // Clear form
+      loginForm.value = { email: '', password: '' };
     }, 1000);
-  } catch (err) {
-    errorMsg.value = err.response?.data?.error || 'Login failed.';
+  } else {
+    errorMsg.value = result.error;
   }
 };
 
@@ -102,26 +143,43 @@ const handleSignup = async (e) => {
   e.preventDefault();
   errorMsg.value = '';
   successMsg.value = '';
+  
   if (signupForm.value.password !== signupForm.value.confirm) {
     errorMsg.value = 'Passwords do not match.';
     return;
   }
-  try {    const res = await axios.post('http://localhost:3000/api/signup', {
-
-      email: signupForm.value.email,
-      password: signupForm.value.password,
-    });
-    successMsg.value = 'Sign up successful! You can now log in.';
+  
+  const result = await userStore.signup(signupForm.value.email, signupForm.value.password);
+  
+  if (result.success) {
+    successMsg.value = 'Sign up successful! You are now logged in.';
     setTimeout(() => {
-      isSignup.value = false;
+      showUserPopup.value = false;
       successMsg.value = '';
+      // Clear form
+      signupForm.value = { email: '', password: '', confirm: '' };
     }, 1000);
-  } catch (err) {
-    errorMsg.value = err.response?.data?.error || 'Sign up failed.';
+  } else {
+    errorMsg.value = result.error;
   }
 };
 
-onMounted(() => {
+const handleLogout = () => {
+  userStore.logout();
+  showUserPopup.value = false;
+  successMsg.value = 'Logged out successfully!';
+  setTimeout(() => {
+    successMsg.value = '';
+  }, 1000);
+};
+
+onMounted(async () => {
+  // Verify token on app start
+  await userStore.verifyToken();
+  
+  // Fetch product data
+  await fetchProductData();
+  
   setTimeout(() => {
     navVisible.value = true;
   }, 100); // slight delay for effect
@@ -130,6 +188,65 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.grid {
+  width: 1685px;
+  height: 900px;
+  background: transparent;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: 50px;
+  padding:20px;
+  position: absolute;
+  top: 10%;
+  left: 7%;
+  z-index: 1;
+}
+
+.grid-item {
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  border: 1px solid #000000;
+  border-radius: 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: 15px;
+}
+
+.grid-item-img {
+  width: 100%;
+  height: 60%;
+  object-fit: contain;
+  box-shadow: 0 3px 0 0 rgba(0, 0, 0, 0.5);
+}
+
+.grid-item-title {
+  text-align: center;
+  margin: 10px 0 5px 0;
+  font-size: 1.5rem;
+  color: #520018;
+  font-weight: bold;
+}
+
+.grid-item-description {
+  text-align: center;
+  margin: 5px 0;
+  font-size: 2rem;
+  color: #666;
+  line-height: 1.2;
+}
+
+.grid-item-price {
+  text-align: center;
+  margin: 5px 0;
+  font-size: 1.2rem;
+  color: #520018;
+  font-weight: bold;
+}
+
 .bar {
   width: 1920px;
   height: 60px;
@@ -142,11 +259,13 @@ onMounted(() => {
   justify-content: center;
   z-index: 2;
 }
+
 .logo {
   width: 158px;
   height: 158px;
   object-fit: contain;
 }
+
 .back {
   width: 1350px;
   height: 1350px;
@@ -157,6 +276,7 @@ onMounted(() => {
   left: 12.5%;
   z-index: 1;
 }
+
 .nav {
   width: 52px;
   height: 562px;
@@ -169,9 +289,11 @@ onMounted(() => {
   z-index: 3;
   border: 4px solid #000000;
 }
+
 .nav.nav-enter {
   left: 20px;
 }
+
 .user-btn {
   background: none;
   border: none;
@@ -184,6 +306,7 @@ onMounted(() => {
   transform: translateX(-50%);
   z-index: 4;
 }
+
 .user, .search, .menu {
   width: 39px;
   height: 39px;
@@ -192,10 +315,12 @@ onMounted(() => {
   border-radius: 16px;
   transition: transform 0.3s cubic-bezier(0.68, -0.55, 0.27, 1.55), box-shadow 0.3s;
 }
+
 .user.clicked, .search.clicked, .menu.clicked, .cart.clicked {
   transform: scale(1.15);
   box-shadow: 0 4px 16px rgba(0,0,0,0.18);
 }
+
 .search-btn {
   background: none;
   border: none;
@@ -208,6 +333,7 @@ onMounted(() => {
   transform: translateX(-50%);
   z-index: 4;
 }
+
 .menu-btn {
   background: none;
   border: none;
@@ -220,6 +346,7 @@ onMounted(() => {
   transform: translateX(-50%);
   z-index: 4;
 }
+
 .cart-btn {
   background: none;
   border: none;
@@ -232,6 +359,7 @@ onMounted(() => {
   transform: translateX(-50%);
   z-index: 4;
 }
+
 .cart {
   width: 39px;
   height: 39px;
@@ -239,6 +367,7 @@ onMounted(() => {
   background-color: transparent;
   transition: transform 0.3s cubic-bezier(0.68, -0.55, 0.27, 1.55), box-shadow 0.3s;
 }
+
 .logonav {
   rotate: 270deg;
   width: 158px;
@@ -250,6 +379,7 @@ onMounted(() => {
   transform: translateX(-50%);
   z-index: 4;
 }
+
 .user-popup {
   position: absolute;
   left: 1700%;
@@ -265,28 +395,33 @@ onMounted(() => {
   pointer-events: none;
   transition: all 0.35s cubic-bezier(0.68, -0.55, 0.27, 1.55);
 }
+
 .user-popup.bob-up {
   opacity: 1;
   pointer-events: auto;
   transform: translateX(-50%) translateY(-20px) scale(1.05);
 }
+
 .form {
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
+
 .form h3 {
   margin: 0 0 8px 0;
   font-size: 1.2rem;
   color: #520018;
   text-align: center;
 }
+
 .form input {
   padding: 8px 10px;
   border: 1px solid #ccc;
   border-radius: 6px;
   font-size: 1rem;
 }
+
 .form button {
   background: #520018;
   color: #fff;
@@ -298,27 +433,69 @@ onMounted(() => {
   margin-top: 6px;
   transition: background 0.2s;
 }
+
 .form button:hover {
   background: #7a0030;
 }
+
 .switch-text {
   font-size: 0.95rem;
   text-align: center;
   margin-top: 4px;
 }
+
 .switch-text span {
   color: #520018;
   cursor: pointer;
   text-decoration: underline;
 }
+
 .error-msg {
   color: #b00020;
   text-align: center;
   margin-top: 8px;
 }
+
 .success-msg {
   color: #007e33;
   text-align: center;
   margin-top: 8px;
 }
-</style> 
+
+.user-info {
+  text-align: center;
+  padding: 20px;
+}
+
+.user-info h3 {
+  margin: 0 0 12px 0;
+  font-size: 1.2rem;
+  color: #520018;
+}
+
+.user-email {
+  font-size: 1rem;
+  color: #333;
+  margin-bottom: 20px;
+  padding: 8px 12px;
+  background: #f5f5f5;
+  border-radius: 6px;
+  border: 1px solid #ddd;
+}
+
+.logout-btn {
+  background: #b00020;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 10px 20px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background 0.2s;
+  width: 100%;
+}
+
+.logout-btn:hover {
+  background: #d32f2f;
+}
+</style>
